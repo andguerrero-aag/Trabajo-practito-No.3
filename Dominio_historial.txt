@@ -1,0 +1,473 @@
+JUEGO DE DOMINO (modificado):
+
+
+#include <iostream>
+#include <vector>
+#include <deque>
+#include <algorithm>
+#include <random>
+#include <string>
+#include <limits>
+#include <iomanip>
+#include <fstream>
+
+using namespace std;
+
+// -------------------------
+// Clase Ficha
+// Representa una ficha de dominó con dos valores (a,b)
+// -------------------------
+class Ficha {
+public:
+    int a, b;
+    Ficha(int a_=0, int b_=0) : a(a_), b(b_) {}
+
+    // Suma de puntos de la ficha
+    int puntos() const { return a + b; }
+
+    // Representación textual [a|b]
+    string toString() const {
+        return "[" + to_string(a) + "|" + to_string(b) + "]";
+    }
+};
+
+// -------------------------
+// Clase Jugador
+// Representa un jugador con nombre, mano y puntos acumulados
+// -------------------------
+class Jugador {
+public:
+    string nombre;
+    vector<Ficha> mano;
+    int puntosTotales = 0; // puntos acumulados a lo largo de rondas
+
+    Jugador(const string& n = "") : nombre(n) {}
+
+    // Suma de puntos en mano (para determinar ganador en bloqueo)
+    int puntosEnMano() const {
+        int s = 0;
+        for (const auto& f : mano) s += f.puntos();
+        return s;
+    }
+
+    // Mostrar la mano del jugador (índices incluidos)
+    void mostrarMano() const {
+        cout << nombre << " - Tu mano:\n";
+        for (size_t i = 0; i < mano.size(); ++i) {
+            cout << "  (" << i << ") " << mano[i].toString() << "\n";
+        }
+    }
+};
+
+// -------------------------
+// Nodo para historial (lista enlazada simple dinámica)
+// Cada nodo representa una jugada (o pase)
+// -------------------------
+struct HistNodo {
+    string jugador;
+    string ficha;    // ficha jugada o "PASA"
+    string estadoMesa; // representación de la mesa después del movimiento
+    HistNodo* next;
+    HistNodo(const string& j, const string& f, const string& e) : jugador(j), ficha(f), estadoMesa(e), next(nullptr) {}
+};
+
+// -------------------------
+// Clase JuegoDomino
+// Controla flujo de la partida/rondas y guarda historial
+// -------------------------
+class JuegoDomino {
+private:
+    vector<Ficha> boveda;      // todas las fichas disponibles (baraja)
+    deque<Ficha> mesa;         // fichas colocadas en la mesa (deque por ambos extremos)
+    vector<Jugador> jugadores; // jugadores en la partida
+    int jugadoresCount = 0;
+    mt19937 rng;               // generador aleatorio
+
+    // Historial: lista enlazada dinámica (simple)
+    HistNodo* histHead = nullptr;
+    HistNodo* histTail = nullptr;
+
+public:
+    JuegoDomino() {
+        random_device rd;
+        rng.seed(rd());
+    }
+
+    ~JuegoDomino() {
+        // liberar historial
+        HistNodo* p = histHead;
+        while (p) {
+            HistNodo* t = p;
+            p = p->next;
+            delete t;
+        }
+    }
+
+    // Generar las 28 fichas del doble-6
+    void generarFichas() {
+        boveda.clear();
+        for (int i = 0; i <= 6; ++i)
+            for (int j = i; j <= 6; ++j)
+                boveda.emplace_back(i, j);
+    }
+
+    // Barajar las fichas (Fisher–Yates via shuffle)
+    void barajar() {
+        shuffle(boveda.begin(), boveda.end(), rng);
+    }
+
+    // Configurar jugadores (nombres)
+    void configurarJugadores() {
+        jugadores.clear();
+        int n;
+        do {
+            cout << "Ingrese número de jugadores (2-4): ";
+            cin >> n;
+        } while (n < 2 || n > 4);
+        jugadoresCount = n;
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        for (int i = 0; i < n; ++i) {
+            string nombre;
+            cout << "Nombre del jugador " << (i + 1) << ": ";
+            getline(cin, nombre);
+            jugadores.emplace_back(nombre.empty() ? ("Jugador" + to_string(i+1)) : nombre);
+        }
+    }
+
+    // Repartir 7 fichas a cada jugador
+    void repartir() {
+        for (auto &j : jugadores) j.mano.clear();
+        size_t idx = 0;
+        const int porJugador = 7;
+        for (int r = 0; r < porJugador; ++r) {
+            for (int p = 0; p < jugadoresCount; ++p) {
+                if (idx < boveda.size()) {
+                    jugadores[p].mano.push_back(boveda[idx++]);
+                }
+            }
+        }
+        if (idx < boveda.size()) {
+            boveda.erase(boveda.begin(), boveda.begin() + idx);
+        } else {
+            boveda.clear();
+        }
+    }
+
+    // Añadir entrada al historial (lista enlazada simple)
+    void addHist(const string& jugador, const string& ficha, const string& estadoMesa) {
+        HistNodo* n = new HistNodo(jugador, ficha, estadoMesa);
+        if (!histHead) {
+            histHead = histTail = n;
+        } else {
+            histTail->next = n;
+            histTail = n;
+        }
+    }
+
+    // Volcar historial a archivo al final del juego
+    void writeHistToFile(const string& filename) {
+        ofstream out(filename);
+        HistNodo* p = histHead;
+        out << "HISTORIAL DE MOVIMIENTOS - DOMINO\n";
+        out << "Formato: jugador | ficha_jugada | estado_mesa (secuencia de fichas de izquierda a derecha)\n\n";
+        while (p) {
+            out << p->jugador << " | " << p->ficha << " | " << p->estadoMesa << "\n";
+            p = p->next;
+        }
+        out.close();
+        cout << "Historial guardado en: " << filename << "\n";
+    }
+
+    // Buscar el jugador que empieza: doble mayor o mayor suma
+    int determinarJugadorInicio() {
+        int mejorJugador = -1;
+        int mejorValor = -1;
+        for (int p = 0; p < jugadoresCount; ++p) {
+            for (const auto& f : jugadores[p].mano) {
+                if (f.a == f.b) {
+                    if (f.a > mejorValor) { mejorValor = f.a; mejorJugador = p; }
+                }
+            }
+        }
+        if (mejorJugador != -1) return mejorJugador;
+        int mayorSuma = -1;
+        for (int p = 0; p < jugadoresCount; ++p) {
+            for (const auto& f : jugadores[p].mano) {
+                int s = f.puntos();
+                if (s > mayorSuma) { mayorSuma = s; mejorJugador = p; }
+            }
+        }
+        return mejorJugador == -1 ? 0 : mejorJugador;
+    }
+
+    // Mostrar estado de la mesa (al centro)
+    void mostrarMesa() const {
+        cout << "\nMesa: ";
+        if (mesa.empty()) {
+            cout << "(vacía)\n";
+            return;
+        }
+        for (const auto& f : mesa) cout << f.toString() << " ";
+        cout << "\nExtremos: izquierda=" << mesa.front().a << " derecha=" << mesa.back().b << "\n";
+    }
+
+    // Obtener representación de la mesa como cadena (izquierda -> derecha)
+    string mesaToString() const {
+        if (mesa.empty()) return "(vacía)";
+        string s;
+        for (const auto& f : mesa) {
+            if (!s.empty()) s += " ";
+            s += f.toString();
+        }
+        return s;
+    }
+
+    // Determina si una ficha puede jugarse en la mesa y en qué extremos (L,R)
+    pair<bool,bool> fichaPuedeEnExtremos(const Ficha& f) const {
+        if (mesa.empty()) return {true, true};
+        int left = mesa.front().a;
+        int right = mesa.back().b;
+        bool podeIzq = (f.a == left || f.b == left);
+        bool podeDer = (f.a == right || f.b == right);
+        return {podeIzq, podeDer};
+    }
+
+    // Para un jugador dado, devuelve lista de movimientos válidos (index de la mano, 'L' o 'R')
+    vector<pair<int,char>> movimientosValidos(int jugadorIdx) const {
+        vector<pair<int,char>> movs;
+        for (size_t i = 0; i < jugadores[jugadorIdx].mano.size(); ++i) {
+            auto f = jugadores[jugadorIdx].mano[i];
+            auto extremos = fichaPuedeEnExtremos(f);
+            if (extremos.first) movs.emplace_back((int)i, 'L');
+            if (extremos.second) movs.emplace_back((int)i, 'R');
+        }
+        return movs;
+    }
+
+    // Colocar ficha en la mesa con orientación correcta según el extremo elegido
+    void colocarFichaEnMesa(const Ficha& f, char extremo) {
+        if (mesa.empty()) {
+            mesa.push_back(f);
+            return;
+        }
+        int left = mesa.front().a;
+        int right = mesa.back().b;
+        if (extremo == 'L') {
+            if (f.b == left) {
+                mesa.push_front(f);
+            } else if (f.a == left) {
+                Ficha nueva(f.b, f.a);
+                mesa.push_front(nueva);
+            }
+        } else {
+            if (f.a == right) {
+                mesa.push_back(f);
+            } else if (f.b == right) {
+                Ficha nueva(f.b, f.a);
+                mesa.push_back(nueva);
+            }
+        }
+    }
+
+    // Ejecutar una ronda completa
+    void jugarRonda() {
+        generarFichas();
+        barajar();
+        repartir();
+        mesa.clear();
+
+        int turno = determinarJugadorInicio();
+        cout << "\nEl jugador que inicia es: " << jugadores[turno].nombre << "\n";
+
+        int consecutivosPasan = 0;
+        bool rondaTerminada = false;
+        int ganadorIdx = -1;
+
+        while (!rondaTerminada) {
+            mostrarMesa();
+            Jugador &jug = jugadores[turno];
+            cout << "\n--- Turno de " << jug.nombre << " ---\n";
+            jug.mostrarMano();
+
+            auto movs = movimientosValidos(turno);
+            if (movs.empty()) {
+                cout << jug.nombre << " no tiene movimientos válidos. Pasa.\n";
+                // registrar pase en historial
+                addHist(jug.nombre, "PASA", mesaToString());
+                consecutivosPasan++;
+            } else {
+                cout << "Movimientos válidos:\n";
+                vector<pair<int,char>> opciones;
+                for (auto &m : movs) {
+                    bool existe = false;
+                    for (auto &o : opciones) if (o.first==m.first && o.second==m.second) { existe=true; break; }
+                    if (!existe) opciones.push_back(m);
+                }
+                for (size_t i = 0; i < opciones.size(); ++i) {
+                    int idx = opciones[i].first;
+                    char lado = opciones[i].second;
+                    cout << "  (" << i << ") Colocar " << jugadores[turno].mano[idx].toString()
+                         << " en " << (lado=='L' ? "izquierda" : "derecha") << "\n";
+                }
+
+                int elec;
+                while (true) {
+                    cout << "Seleccione opción (número): ";
+                    if (!(cin >> elec) || elec < 0 || elec >= (int)opciones.size()) {
+                        cout << "Opción inválida. Intente de nuevo.\n";
+                        cin.clear();
+                        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                    } else break;
+                }
+                auto chosen = opciones[elec];
+                int manoIdx = chosen.first;
+                char lado = chosen.second;
+                Ficha fichaAJugar = jugadores[turno].mano[manoIdx];
+
+                colocarFichaEnMesa(fichaAJugar, lado);
+
+                // registrar jugada en historial: jugador, ficha jugada y estado de la mesa después de colocar
+                addHist(jug.nombre, fichaAJugar.toString(), mesaToString());
+
+                // remover ficha de la mano del jugador
+                jugadores[turno].mano.erase(jugadores[turno].mano.begin() + manoIdx);
+
+                cout << jug.nombre << " coloca " << fichaAJugar.toString()
+                     << " en " << (lado=='L' ? "izquierda" : "derecha") << ".\n";
+
+                consecutivosPasan = 0;
+
+                if (jugadores[turno].mano.empty()) {
+                    ganadorIdx = turno;
+                    rondaTerminada = true;
+                    cout << "\n¡" << jugadores[turno].nombre << " se quedó sin fichas y gana la ronda!\n";
+                }
+            }
+
+            if (!rondaTerminada && consecutivosPasan >= jugadoresCount) {
+                cout << "\n--- La partida está bloqueada (ningún jugador puede mover) ---\n";
+                int mejorIdx = -1;
+                int menorPuntos = numeric_limits<int>::max();
+                for (int p = 0; p < jugadoresCount; ++p) {
+                    int s = jugadores[p].puntosEnMano();
+                    cout << jugadores[p].nombre << " tiene " << s << " puntos en mano.\n";
+                    if (s < menorPuntos) {
+                        menorPuntos = s;
+                        mejorIdx = p;
+                    }
+                }
+                ganadorIdx = mejorIdx;
+                cout << "Gana la ronda (por menos puntos) -> " << jugadores[ganadorIdx].nombre << "\n";
+                rondaTerminada = true;
+            }
+
+            if (!rondaTerminada) turno = (turno + 1) % jugadoresCount;
+        }
+
+        int sumaOponentes = 0;
+        for (int p = 0; p < jugadoresCount; ++p) {
+            if (p == ganadorIdx) continue;
+            sumaOponentes += jugadores[p].puntosEnMano();
+        }
+        jugadores[ganadorIdx].puntosTotales += sumaOponentes;
+
+        cout << "\nPuntuación de la ronda: " << jugadores[ganadorIdx].nombre
+             << " recibe " << sumaOponentes << " puntos.\n";
+
+        cout << "\n--- Marcador acumulado ---\n";
+        for (const auto& j : jugadores) {
+            cout << j.nombre << ": " << j.puntosTotales << " puntos\n";
+        }
+    }
+
+    // Ejecutar el juego con rondas hasta que el usuario decida salir
+    void ejecutarJuego() {
+        configurarJugadores();
+        bool seguir = true;
+        while (seguir) {
+            jugarRonda();
+            // preguntar si desea reiniciar ronda o terminar
+            char op;
+            while (true) {
+                cout << "\n¿Desean jugar otra ronda? (s = sí / n = no): ";
+                cin >> op;
+                if (op == 's' || op == 'S' || op == 'n' || op == 'N') break;
+                cout << "Entrada inválida.\n";
+            }
+            if (op == 'n' || op == 'N') {
+                // antes de salir, guardar historial en archivo
+                writeHistToFile("historial_domino.txt");
+                seguir = false;
+                cout << "\nGracias por jugar. Resultado final:\n";
+                for (const auto& j : jugadores) {
+                    cout << j.nombre << ": " << j.puntosTotales << " puntos\n";
+                }
+                cout << "¡Hasta la próxima!\n";
+            } else {
+                // limpiar la mesa y regenerar fichas y repartir en la siguiente ronda
+                mesa.clear();
+                // las puntuaciones acumuladas permanecen
+            }
+        }
+    }
+};
+
+// -------------------------
+// MAIN
+// -------------------------
+int main() {
+    cout << "===== JUEGO DE DOMINO (Doble-6) - Con historial =====\n";
+    JuegoDomino juego;
+    juego.ejecutarJuego();
+    return 0;
+}
+
+
+INSTRUCCIONES PARA COMPILAR
+
+1) Guarda este código en un archivo llamado: Dominio_historial.cpp
+
+2) Compila con:
+   g++ Dominio_historial.cpp -o Dominio_historial
+
+3) Ejecuta:
+   ./Dominio_historial
+
+4) Flujo:
+   - Se pide el número de jugadores (2 a 4) y sus nombres.
+   - Se juegan rondas; cada jugada (o pase) se registra en memoria en una lista enlazada dinámica.
+   - Al finalizar (cuando el usuario elige no jugar otra ronda) se genera el archivo:
+       historial_domino.txt
+     ubicado en la misma carpeta. Cada línea contiene:
+       jugador | ficha_jugada | estado_mesa
+
+
+METODOLOGÍA
+
+
+1. Estructura de datos para historial:
+   - Se implementó una **lista enlazada dinámica simple** (HistNodo) para almacenar
+     cada movimiento: jugador, ficha jugada (o "PASA") y el estado textual de la mesa
+     (secuencia de fichas de izquierda a derecha).
+   - Esto permite agregar entradas en O(1) al final sin conocer el número total de jugadas.
+
+2. Integración con el juego:
+   - Cada vez que un jugador coloca una ficha o pasa, se llama a addHist(...)
+     para registrar el evento junto con la representación actual de la mesa.
+   - El historial se mantiene durante todas las rondas y se escribe al final.
+
+3. Escritura a archivo:
+   - Al terminar el juego (cuando los jugadores deciden no jugar más rondas),
+     se llama a writeHistToFile("historial_domino.txt") que vuelca todo el historial
+     en formato legible en un archivo de texto.
+
+4. Manejo de memoria:
+   - Cada entrada del historial se reserva dinámicamente con 'new' y se libera
+     en el destructor de JuegoDomino para evitar fugas de memoria.
+
+5. Consideraciones:
+   - El formato de estado de la mesa es simple y legible: por ejemplo:
+       [6|6] [6|4] [4|2]
+   - El historial incluye también los pases para poder reconstruir la secuencia completa.
+
+

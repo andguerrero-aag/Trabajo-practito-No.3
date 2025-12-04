@@ -1,0 +1,254 @@
+
+
+Listado estudiantil:
+
+#include #include #include using namespace std;
+
+struct Estudiante { string nombre; int nacimiento; string id; float
+promedio; string email; };
+
+struct Nodo { Estudiante data; Nodo* next; Nodo(Estudiante e) : data(e),
+next(nullptr) {} };
+
+class ListadoEstudiantil { private: Nodo* head;
+
+public: ListadoEstudiantil() : head(nullptr) {}
+
+    void insertarFinal(Estudiante e) {
+        Nodo* nuevo = new Nodo(e);
+        if (!head) {
+            head = nuevo;
+            return;
+        }
+        Nodo* temp = head;
+        while (temp->next) temp = temp->next;
+        temp->next = nuevo;
+    }
+
+    bool eliminarPorID(string id) {
+        if (!head) return false;
+        if (head->data.id == id) {
+            Nodo* temp = head;
+            head = head->next;
+            delete temp;
+            return true;
+        }
+        Nodo* temp = head;
+        while (temp->next && temp->next->data.id != id)
+            temp = temp->next;
+
+        if (!temp->next) return false;
+
+        Nodo* borrar = temp->next;
+        temp->next = borrar->next;
+        delete borrar;
+        return true;
+    }
+
+    int buscar(string id) {
+        Nodo* temp = head;
+        int pos = 0;
+        while (temp) {
+            if (temp->data.id == id) return pos;
+            temp = temp->next;
+            pos++;
+        }
+        return -1;
+    }
+
+    void imprimirTXT(string filename) {
+        ofstream file(filename);
+        Nodo* temp = head;
+        while (temp) {
+            file << "Nombre: " << temp->data.nombre << "\n";
+            file << "Nacimiento: " << temp->data.nacimiento << "\n";
+            file << "ID: " << temp->data.id << "\n";
+            file << "Promedio: " << temp->data.promedio << "\n";
+            file << "Email: " << temp->data.email << "\n";
+            file << "-----------------------------\n";
+            temp = temp->next;
+        }
+        file.close();
+    }
+
+    void invertir() {
+        Nodo* prev = nullptr;
+        Nodo* actual = head;
+        Nodo* next = nullptr;
+
+        while (actual) {
+            next = actual->next;
+            actual->next = prev;
+            prev = actual;
+            actual = next;
+        }
+        head = prev;
+    }
+
+    Estudiante& operator[](int index) {
+        Nodo* temp = head;
+        int pos = 0;
+        while (temp) {
+            if (pos == index) return temp->data;
+            temp = temp->next;
+            pos++;
+        }
+        throw out_of_range("Índice fuera de rango");
+    }
+
+    ~ListadoEstudiantil() {
+        Nodo* temp;
+        while (head) {
+            temp = head;
+            head = head->next;
+            delete temp;
+        }
+    }
+
+};
+
+int main() { ListadoEstudiantil lista; int opcion;
+
+    do {
+        cout << "\n--- MENÚ ---\n";
+        cout << "1. Insertar estudiante\n";
+        cout << "2. Eliminar estudiante por ID\n";
+        cout << "3. Buscar estudiante por ID\n";
+        cout << "4. Imprimir lista en archivo TXT\n";
+        cout << "5. Invertir lista\n";
+        cout << "6. Acceder por índice\n";
+        cout << "0. Salir\n";
+        cout << "Opción: ";
+        cin >> opcion;
+
+        if (opcion == 1) {
+            Estudiante e;
+            cout << "Nombre: ";
+            cin.ignore();
+            getline(cin, e.nombre);
+            cout << "Nacimiento: ";
+            cin >> e.nacimiento;
+            cout << "ID: ";
+            cin >> e.id;
+            cout << "Promedio: ";
+            cin >> e.promedio;
+            cout << "Email: ";
+            cin >> e.email;
+            lista.insertarFinal(e);
+
+        } else if (opcion == 2) {
+            string id;
+            cout << "ID a eliminar: ";
+            cin >> id;
+            if (lista.eliminarPorID(id))
+                cout << "Eliminado.\n";
+            else
+                cout << "No encontrado.\n";
+
+        } else if (opcion == 3) {
+            string id;
+            cout << "ID a buscar: ";
+            cin >> id;
+            int pos = lista.buscar(id);
+            if (pos != -1)
+                cout << "Encontrado en posición " << pos << ".\n";
+            else
+                cout << "No encontrado.\n";
+
+        } else if (opcion == 4) {
+            lista.imprimirTXT("listado.txt");
+            cout << "Archivo generado.\n";
+
+        } else if (opcion == 5) {
+            lista.invertir();
+            cout << "Lista invertida.\n";
+
+        } else if (opcion == 6) {
+            int index;
+            cout << "Índice: ";
+            cin >> index;
+            try {
+                Estudiante& e = lista[index];
+                cout << "Nombre: " << e.nombre << "\n";
+            } catch (exception& ex) {
+                cout << ex.what() << "\n";
+            }
+        }
+
+    } while (opcion != 0);
+
+    return 0;
+
+}
+
+
+
+
+
+METODOLOGÍA DEL PROGRAMA - LISTADO ESTUDIANTIL (LISTA ENLAZADA SIMPLE)
+
+1. Definición de la estructura del nodo
+   - Se crea una estructura Node que almacena:
+        • Datos del estudiante (nombre, año de nacimiento, ID, promedio y email).
+        • Un puntero 'next' al siguiente nodo.
+   - Esto permite construir una lista enlazada simple.
+
+2. Clase ListadoEstudiantil
+   - Contiene un puntero 'head' que representa el inicio de la lista.
+   - El constructor inicializa la lista vacía (head = nullptr).
+
+3. Inserción al final
+   - Se crea un nuevo nodo.
+   - Si la lista está vacía, head = nuevo nodo.
+   - Si no, se recorre hasta el último nodo y se enlaza allí.
+
+4. Eliminación de un nodo por ID
+   - Se busca el nodo cuyo estudiante tenga ese ID.
+   - Se reasignan punteros para excluirlo y liberar memoria.
+
+5. Búsqueda de un estudiante por ID
+   - Se recorre la lista nodo por nodo.
+   - Si se encuentra el ID, se devuelve la posición en la lista.
+   - Si no se encuentra, se retorna -1.
+
+6. Indexación (sobrecarga de operador [])
+   - Permite acceder a un nodo mediante un índice como si fuese un arreglo.
+   - Se recorre la lista hasta llegar a la posición indicada.
+
+7. Invertir la lista enlazada
+   - Se aplican tres punteros: prev, current, next.
+   - Se cambian las direcciones de los enlaces hasta dar vuelta completamente a la lista.
+
+8. Impresión en archivo .txt
+   - Se abre un archivo de salida.
+   - Se recorre la lista y se escribe cada estudiante en formato legible.
+   - El archivo queda guardado para revisión.
+
+9. Destructor
+   - Libera cada nodo dinámicamente para evitar fugas de memoria.
+
+
+
+INSTRUCCIONES DE COMPILACIÓN Y EJECUCIÓN
+
+1. Guardar el archivo principal como:
+      listado_estudiantil.cpp
+
+2. Compilar desde terminal con:
+      g++ listado_estudiantil.cpp -o listado
+
+3. Ejecutar con:
+      ./listado
+
+4. El programa permitirá:
+      • Insertar estudiantes.
+      • Eliminar por ID.
+      • Buscar estudiante.
+      • Imprimir en archivo .txt.
+      • Acceder por índice.
+      • Invertir la lista enlazada.
+
+5. El archivo de salida se generará como:
+      estudiantes_listado.txt
+   en el mismo directorio del programa.
+
